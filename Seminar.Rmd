@@ -1,0 +1,216 @@
+---
+title: Prediction of the consumption of vehicles based on Multivariate Regression Analysis
+author: 'MYU : R Seminar > Regression Models '
+date: 'By Jean Marie Cimula'
+output: html_document
+---
+
+
+###Introduction
+
+The goal of this paper is to present:  the concept of prediction in  Multiple Regression, the assumptions underlying multiple regression analysis and cross-validation.
+
+```{r}
+#Loading libraries
+library(downloader)
+library(ggplot2)
+#library(GGally)
+```
+
+```{r}
+#Downloading data from University of Lyon2
+url <- "http://eric.univ-lyon2.fr/~ricco/cours/didacticiels/R/automobiles_pour_regression.txt"
+filename   <- "automobiles_pour_regression.txt"
+           
+     if (!file.exists(filename)) download(url,filename)
+     msleep <- read.table(file = "automobiles_pour_regression.txt",sep="\t",header=TRUE,dec=".",row.names=1)
+```
+
+```{r}
+#Changing column names
+#Old columns from UL2
+head(msleep,n=2)
+colnames(msleep) <- c("Price","Cylinder","Power","Weight","Consumption")
+#News columns
+head(msleep,n=2)
+```
+
+#Multiple Linear Regression
+```{r}
+#Consumption is the response variable
+#Price, Cylinder, Power and Weight are explanatory variables
+#Our model is Consumption ~ Price + Cylinder + Power + Weight
+varReg <- lm (Consumption ~ Price + Cylinder + Power + Weight, msleep)
+varRes <- residuals(varReg)
+```
+
+###Plot of residuals (Normality)
+```{r}
+qqnorm(varRes,datax=TRUE,ylab="Quantiles Observed",xlab="Theoretical Quantile")
+```
+
+                      QQ-plot allows to check the normality of distribution.
+
+The comparison between Quantiles Observed and Theoretical Quantile in the Q-Q Plot,  we can observe Henry's line which is showing that the distribution is consistent with the normal distribution.
+
+###Residuals vs variables
+
+```{r}
+par(mfrow =c(2,3))
+
+for (j in 1:5){
+               plot(msleep[,j], varRes, ylab="Residuals", xlab=names(msleep)[j],col="red")
+               abline(h=0)
+              }
+```
+
+The graphs of the residuals (y-axis) vs. the study variables (x-axis) to visually detect outliers: both variables (the points on the outskirts x-axis) in the regression (the points on the periphery axis).
+
+#Study of outliers
+
+###Outlier with The standardized residual
+
+```{r}
+#Calculation of standardized residual
+varStandRes <- rstandard(varReg) 
+#Setting the value of alpha
+alpha <- 0.1
+#Calculation of the threshold from Student distrution (n-p-1) degree of freedom
+#n is the size of dataset and p is the number of columns
+n <- dim(msleep)[1]
+p <- dim(msleep)[2]
+
+#In statistics, the number of degrees of freedom is the number of values in the final calculation of a statistic that are free to vary
+dFreedom <- n-p-1
+threshold <- qt(1-alpha/2,dFreedom)
+
+plot(msleep$Consumption,varStandRes,ylab="Standardized residual",xlab="Consumption", col="blue")
+#Adding to this graph limits for ruling on the atypical nature of the residual
+abline(h=-threshold)#Negative threshold
+abline(h=+threshold)#Postive threshold
+abline(h=0)#Line in the middle (Point XOY)
+
+#Observation in the dataset challenging the standardized residual with the negative/positive threshold
+obs <- msleep [varStandRes < -threshold | varStandRes > +threshold,]
+
+#Vehicle name retrieval in the dataset and put it in the plot
+for (i in 1:nrow(obs)){
+                        vName <- row.names(obs)[i]
+                        text(msleep[vName,"Consumption"],varStandRes[vName],vName)
+                      }
+```
+
+                      Automatic detection of outliers within the meaning of standardized residual
+
+###Outlier with Hat Matrix
+```{r}
+#In statistics, the hat matrix, H, sometimes also called the influence matrix or projection matrix, maps the vector of response values (dependent variable values) to the vector of fitted values (or predicted values).
+
+outlier <- influence.measures(varReg)
+
+#Attribritues attached to the hat matrix
+attributes(outlier)
+
+#Retrieval of Levarage points in the columns "hat"
+levPoints <- outlier$infmat[,"hat"]
+
+#Recommended threshold formula for the Levarage is 2*p/n
+rT <- 2*p/n
+
+#outliers within the meaning of the leverage points
+oLP <- msleep [levPoints > rT,]
+print(oLP)
+```
+
+###Observation
+
+The comparison of Outlier with standardized residual and Hat Matrix, we can see :
+
+(1) Ferrari and Mercedes are atypical, they are both in the description as atypical in predicting the consumption
+
+###Data Cleaning
+
+Remove suspicious outliers
+
+```{r}
+#Boolean vector of suspicion for standardized residual
+bStRes <- (varStandRes < -threshold | varStandRes > +threshold ) 
+
+#Boolean vector of suspicion for Hat Matrix
+bLevPoints <- (levPoints > rT)
+
+#Detection of suspicion
+susp <- bStRes | bLevPoints
+
+#Data not suspected from the dataset
+notSusp <- !susp
+
+msleep2 <- msleep [notSusp,]
+```
+
+The new size of the dataset is `r dim(msleep2)[1]`.
+
+Regression with cleaned data
+
+```{r}
+
+varRegCleaned <- lm(Consumption ~., msleep2)
+
+#Multiple R-Squared
+MRS <- summary(varRegCleaned)$r.squared
+MRS
+```
+
+[obs1] The Multiple R-Squared is : `r MRS`, from this value we will detect the pairwise correlations among all the variables which are posing problem in the consumption of vehicle
+
+```{r}
+#Detection of collinearity :  Klein's Rule of Thumb > suggests that multicollinearity may be a problem only if the R² obtained from an auxiliary regression is greater than the overall R²
+mcxx <- cor(msleep2[,c(1,2,3,4)])
+#Power 2
+mcxx <- mcxx^2
+mcxx
+```
+
+Cylinder and Power values are roughly the same with the Multiple R-Squared. Let check this observation with the Variance Inflation Factor if we will get the same result.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+#Loading libraries
+library(sp)
+library(raster)
+library(usdm)
+library(MASS)
+```
+```{r}
+#Detection of collinearity : Variance Inflation Factor (VIF)
+#It provides an index that measures how much the variance (the square of the estimate's standard deviation) of an estimated regression coefficient is increased because of collinearity.
+dT <- msleep2[,c(1,2,3,4)]
+vif(dT)
+```
+
+Here the max value is the variable Cylinder and min value is the variable Weight.The first observation [obs1] is not accurate.
+
+Let compare VIF and the AIC if we will have the same conclusion
+
+```{r}
+#Variable Selection based on AIC (Akaike information criterion)
+#First method
+varRegSel1 <- lm(Consumption ~ Price + Cylinder + Power + Weight,data= msleep2)
+stepAIC(varRegSel1,direction = "backward",trace=TRUE)
+
+#Second method
+varRegSel2 <- lm(Consumption ~ 1,data=msleep2)
+stepAIC(varRegSel2,scope=list(upper=~Price+Cylinder+Power+Weight,lower=~1),direction="forward",trace=TRUE)
+```
+
+Search "backward" and "forward" looking the same result: weight and cylinder are the relevant variables to explain vehicle consumption.
+
+```{r results='hide', message=FALSE, warning=FALSE}
+library(DAAG)
+```
+
+###Cross validation
+
+```{r}
+#The goal of cross validation is to define a dataset to "test" the model in the training phase (i.e., the validation dataset), in order to limit problems like overfitting, give an insight on how the model will generalize to an independent dataset
+CVlm(msleep2, form.lm = formula(Consumption ~ Price + Cylinder + Power + Weight), printit = TRUE,m=10)
+```
